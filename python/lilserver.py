@@ -1,6 +1,6 @@
 from flask import Flask, request
 from flask_serial import Serial
-import sys
+import colorsys
 
 app = Flask(__name__)
 app.config['SERIAL_TIMEOUT'] = 2
@@ -121,10 +121,16 @@ def led2_route():
 
 @app.route('/color')
 def color_route():
-    r = request.args.get('r', type=int)
-    g = request.args.get('g', type=int)
-    b = request.args.get('b', type=int)
-    print('LED1 rec. param', r, g, b)
+    val = request.args.get('val', type=str)
+    print('LED1 rec. param', val)
+    hsv = val.split(',')
+    h = int(hsv[0]) / 360
+    s = int(hsv[1]) / 100
+    v = int(hsv[2]) / 100
+    r, g, b = colorsys.hsv_to_rgb(h, s, v)
+    r = round(r * 1023, 0)
+    g = round(g * 1023, 0)
+    b = round(b * 1023, 0)
     ser.on_send('color:{}:{}:{}'.format(r, g, b))
     return 'ok {} {} {}'.format(r, g, b)
 
