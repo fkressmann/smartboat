@@ -45,16 +45,19 @@ def read_data():
     x = ser.readline().decode('utf-8')
     print(x)
     # A0, A1, A2, A3, A4, A5, A6, A7, D2
-    data = iter((float(e) for e in x.split(":")))
-    n['U12v'] = internal_voltage(17.05, next(data))
-    n['U5v'] = internal_voltage(6.25, next(data))
-    next(data)
-    n['Iverb'] = acs711(next(data))
-    n['Ibat'] = acs711(next(data))
-    n['Iinverter'] = acs711(next(data))
-    n['Awasser1'] = next(data)
-    n['Awasser2'] = next(data)
-    n['Atank'] = tank(next(data))
+    try:
+        data = iter((float(e) for e in x.split(":")))
+        n['U12v'] = internal_voltage(17.05, next(data))
+        n['U5v'] = internal_voltage(6.25, next(data))
+        next(data)
+        n['Iverb'] = acs711(next(data))
+        n['Ibat'] = acs711(next(data))
+        n['Iinverter'] = acs711(next(data))
+        n['Awasser1'] = next(data)
+        n['Awasser2'] = next(data)
+        n['Atank'] = tank(next(data))
+    except ValueError as e:
+        print('problem...', e.args)
 
 
 def internal_voltage(Umax, value):
@@ -83,14 +86,14 @@ def calc():
 
 
 def track():
-    for k, v in o:
+    for k, v in o.items():
         if n[k] != v:
-            v = n[k]
+            o[k] = n[k]
             # items.get(k).update(v)
-            print(k + ":" + v)
+            print(k + ":" + str(n[k]))
 
 
-if __name__ == "__main__":
+if __name__ == "__maicn__":
     while True:
         read_data()
         calc()
