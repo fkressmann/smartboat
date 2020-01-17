@@ -1,6 +1,5 @@
 from flask import Flask, request
 from flask_serial import Serial
-import colorsys
 
 app = Flask(__name__)
 app.config['SERIAL_TIMEOUT'] = 2
@@ -11,6 +10,7 @@ app.config['SERIAL_PARITY'] = 'N'
 app.config['SERIAL_STOPBITS'] = 1
 
 ser = Serial(app)
+command_string = '+led{}:{}-'
 
 n = {'Iverb': 0,
      'Ibat': 0,
@@ -37,14 +37,11 @@ o = {'U12v': 0,
      }
 
 
-def read_data(x=None):
-    if not x:
-        x = ser.readline().decode('utf-8')
-        print(x)
+def read_data(message):
     # A0, A1, A2, A3, A4, A5, A6, A7, D2
     try:
         print('generating iter')
-        data = iter((float(e) for e in x.split(":")))
+        data = iter((float(e) for e in message.split(":")))
         n['U12v'] = internal_voltage(17.05, next(data))
         n['U5v'] = internal_voltage(6.25, next(data))
         next(data)
@@ -92,9 +89,18 @@ def track():
 
 
 def do_everything(message):
+    print("Processing:", message)
     read_data(message)
     calc()
     track()
+
+
+def handle_led_command(led_no):
+    param = request.args.get('val', type=int)
+    param = int(round(param * 2.55, 0))
+    print('LED1 rec. param', param)
+    ser.on_send(command_string.format(led_no, param))
+    return 'ok' + str(param)
 
 
 @app.route('/')
@@ -105,41 +111,18 @@ def use_serial():
 
 @app.route('/led1')
 def led1_route():
-    param = request.args.get('val', type=int)
-    print('LED1 rec. param', param)
-    ser.on_send('led1:{}'.format(param))
-    return 'ok' + str(param)
+    return handle_led_command(1)
 
 
 @app.route('/led2')
 def led2_route():
-    param = request.args.get('val', type=int)
-    print('LED1 rec. param', param)
-    ser.on_send('led2:{}'.format(param))
-    return 'ok' + str(param)
-
-
-@app.route('/color')
-def color_route():
-    val = request.args.get('val', type=str)
-    print('LED1 rec. param', val)
-    hsv = val.split(',')
-    h = int(hsv[0]) / 360
-    s = int(hsv[1]) / 100
-    v = int(hsv[2]) / 100
-    r, g, b = colorsys.hsv_to_rgb(h, s, v)
-    r = round(r * 1023, 0)
-    g = round(g * 1023, 0)
-    b = round(b * 1023, 0)
-    ser.on_send('color:{}:{}:{}'.format(r, g, b))
-    return 'ok {} {} {}'.format(r, g, b)
+    return handle_led_command(2)
 
 
 @ser.on_message()
 def handle_message(msg):
     serial_buffer = msg.decode("utf-8")
     if serial_buffer.count(':') >= 9:
-        # print("sending buffer:", serial_buffer)
         do_everything(serial_buffer)
 
 
