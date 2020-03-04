@@ -1,18 +1,34 @@
 #include <Arduino.h>
+#include <RCSwitch.h>
 
 int executionCounter = 1;
 int m[9];
+int track[22];
 String toPrint = "+";
 String commandBuffer = "";
 boolean commandBufferValid = false;
+RCSwitch mySwitch = RCSwitch();
 
 void setup() {
   // initialize serial communication at 9600 bits per second:
   Serial.begin(9600);
-  Serial.println("Startup completed");
+  mySwitch.enableTransmit(10);
+  mySwitch.setPulseLength(256);
   pinMode(2, INPUT);
   for(int i = 3; i < 8; i++) {
     pinMode(i, OUTPUT);
+  }
+  // initialize tracking array
+  for (int i = 0; i < 22; i++) {
+    track[i] = 0;
+  }
+  Serial.println("Startup completed");
+}
+
+void sendData(int pin, int value) {
+  if (track[pin] != value) {
+    track[pin] = value;
+    Serial.print('+' + String(pin) + ':' + String(value) + '-');
   }
 }
 
@@ -22,6 +38,7 @@ int measureAnalog(int pin) {
       adcs = adcs + analogRead(pin);
       delay(10);
     }
+  sendData(pin, (adcs / 50));
   return (adcs / 50);
 }
 
@@ -31,6 +48,7 @@ int measureDigital(int pin) {
       adcs = adcs + pulseIn(pin, HIGH, 40000);
       delay(20);
     }
+  sendData(pin, (adcs / 25));
   return (adcs / 25);
 }
 
@@ -86,27 +104,53 @@ void executeNext(int item) {
   case 11:
     m[8] = measureDigital(2);
     break;
-  case 12:
+  case 100:
     sendData();
     break;
+  }
+}
+
+void commandExecutor(int device, int value) {
+  switch (device) {
+    // LED 1
+    case 1:
+      analogWrite(5, value);
+      break;
+    // LED2
+    case 2:
+      analogWrite(6, value);
+      break;
+    // Heizung einschalten
+    case 3:
+      mySwitch.send(547162328, 31);
+      break;
+    // Heizung ausschalten
+    case 4:
+      mySwitch.send(547160708, 31);
+      break;
+    // Heizung Temperatur erhöhen
+    case 5:
+      mySwitch.send(547161208, 31);
+      break;
+    // Heizung Temperatur senken
+    case 6:
+      mySwitch.send(547160388, 31);
+      break;
   }
 }
 
 void serialExecutor() {
   int separatorPos = commandBuffer.indexOf(':');
   if (separatorPos != -1) {
-    String device = commandBuffer.substring(0, separatorPos);
+    int device = commandBuffer.substring(0, separatorPos).toInt();
     int value = commandBuffer.substring(separatorPos + 1).toInt();
-    Serial.println("Rec:" + device + String(value));
-    if (device == "led1") {
-      analogWrite(5, value);
-    } else if (device == "led2") {
-      analogWrite(6, value);
-    }
+    Serial.println("Rec:" + String(device) + "+" + String(value));
+    commandExecutor(device, value);
   }
 }
 
-// the loop routine runs over and over again forever:
+
+// LOOP
 void loop() {
   executeNext(executionCounter);
   executionCounter++;
@@ -115,6 +159,7 @@ void loop() {
   }
 }
 
+// ON SERIAL EVENT
 void serialEvent() {
   while (Serial.available()) {
 
