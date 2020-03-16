@@ -52,16 +52,7 @@ int measureDigital(int pin) {
   return (adcs / 25);
 }
 
-void sendData() {
-  for (int i=0; i<9; i++) {
-      toPrint.concat(m[i]);
-      toPrint.concat(":");
-    }
-  Serial.println(toPrint);
-  toPrint = "+";
-}
-
-void executeNext(int item) {
+void readNextValue(int item) {
   switch (item) {
   case 1:
     analogReference(INTERNAL);
@@ -71,10 +62,10 @@ void executeNext(int item) {
     }
     break;
   case 2:
-    m[0] = measureAnalog(A0);
+    measureAnalog(A0);
     break;
   case 3:
-    m[1] = measureAnalog(A1);
+    measureAnalog(A1);
     break;
   case 4:
     analogReference(DEFAULT);
@@ -84,34 +75,37 @@ void executeNext(int item) {
     }
     break;
   case 5:
-    m[2] = measureAnalog(A2);
+    measureAnalog(A2);
     break;
   case 6:
-    m[3] = measureAnalog(A3);
+    measureAnalog(A3);
     break;
   case 7:
-    m[4] = measureAnalog(A4);
+    measureAnalog(A4);
     break;
   case 8:
-    m[5] = measureAnalog(A5);
+    measureAnalog(A5);
     break;
   case 9:
-    m[6] = measureAnalog(A6);
+    measureAnalog(A6);
     break;
   case 10:
-    m[7] = measureAnalog(A7);
+    measureAnalog(A7);
     break;
   case 11:
-    m[8] = measureDigital(2);
-    break;
-  case 100:
-    sendData();
+    measureDigital(2);
     break;
   }
 }
 
-void commandExecutor(int device, int value) {
-  switch (device) {
+void serialCommandExecutor() {
+  int separatorPos = commandBuffer.indexOf(':');
+  if (separatorPos != -1) {
+    int device = commandBuffer.substring(0, separatorPos).toInt();
+    int value = commandBuffer.substring(separatorPos + 1).toInt();
+    Serial.println("Rec:" + String(device) + "+" + String(value));
+
+    switch (device) {
     // LED 1
     case 1:
       analogWrite(5, value);
@@ -136,23 +130,14 @@ void commandExecutor(int device, int value) {
     case 6:
       mySwitch.send(547160388, 31);
       break;
-  }
-}
-
-void serialExecutor() {
-  int separatorPos = commandBuffer.indexOf(':');
-  if (separatorPos != -1) {
-    int device = commandBuffer.substring(0, separatorPos).toInt();
-    int value = commandBuffer.substring(separatorPos + 1).toInt();
-    Serial.println("Rec:" + String(device) + "+" + String(value));
-    commandExecutor(device, value);
+    }
   }
 }
 
 
 // LOOP
 void loop() {
-  executeNext(executionCounter);
+  readNextValue(executionCounter);
   executionCounter++;
   if (executionCounter > 12) {
     executionCounter = 1;
@@ -169,7 +154,7 @@ void serialEvent() {
       commandBufferValid = true;
       commandBuffer = "";
     } else if (commandBufferValid && inChar == '-') {
-      serialExecutor();
+      serialCommandExecutor();
       commandBufferValid = false;
     } else if (commandBufferValid) {
       commandBuffer += inChar;
