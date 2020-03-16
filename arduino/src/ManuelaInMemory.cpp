@@ -167,9 +167,10 @@ void serialEvent() {
 
     if (inChar == '+') {
       commandBufferValid = true;
+      commandBuffer = "";
     } else if (commandBufferValid && inChar == '-') {
       serialExecutor();
-      commandBuffer = "";
+      commandBufferValid = false;
     } else if (commandBufferValid) {
       commandBuffer += inChar;
     }
