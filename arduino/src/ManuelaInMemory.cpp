@@ -75,7 +75,7 @@ void readNextValue(int item) {
     }
     break;
   case 5:
-    measureAnalog(A2);
+    // measureAnalog(A2);
     break;
   case 6:
     measureAnalog(A3);
@@ -142,6 +142,7 @@ void loop() {
   if (executionCounter > 12) {
     executionCounter = 1;
   }
+  delay(100);
 }
 
 // ON SERIAL EVENT
