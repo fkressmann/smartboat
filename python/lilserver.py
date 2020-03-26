@@ -20,8 +20,11 @@ ser = Serial(app)
 serial_buffer = ""
 
 base_url = 'http://localhost:8080/rest'
-openhab = OpenHAB(base_url)
-items = openhab.fetch_all_items()
+try:
+    openhab = OpenHAB(base_url)
+    items = openhab.fetch_all_items()
+except Exception as e:
+    print("Could not establish OH connection or read data: ", type(e), e)
 
 address_to_sensor_mapping = {}
 
@@ -81,9 +84,8 @@ def acs709(value, offset=0):
     return round(0.0716520039 * (value + offset) - 36.65, ROUND_TO_DECIMALS)
 
 
-def tank(value, offset=0):
-    # ToDo: clarify calculation values
-    return round(123, -1)
+def tank(value):
+    return round((value - 1100) / 4, 0)
 
 
 def just_return(value):
@@ -98,26 +100,32 @@ def calc():
     new_values['Pinverter'] = round(new_values['Iinverter'] * new_values['U12v'], 1)
 
 
+def send_to_openhab(sensor, new_value):
+    try:
+        items.get(sensor).update(new_value)
+    except Exception as e:
+        print("Stuff happened: ", type(e), e)
+
+
 def track():
-    print("### TRACKING ###")
+    # print("### TRACKING ###")
     calc()
     for sensor, old_value in old_values.items():
         new_value = new_values[sensor]
         if new_value != old_value:
             old_values[sensor] = new_values[sensor]
-            items.get(sensor).update(new_value)
-            print(sensor + ":" + str(new_value))
+            send_to_openhab(sensor, new_value)
 
 
 def handle_led_command(arduino_pin_no):
     param = request.args.get('val', type=int)
     param = int(round(param * 2.55, 0))
-    print('LED{} rec. param {}', arduino_pin_no, param)
+    print('LED{} rec. param {}'.format(arduino_pin_no, param))
     serial_send(arduino_pin_no, param)
     return 'ok' + str(param)
 
 
-def serial_send(address, command):
+def serial_send(address, command=0):
     ser.on_send('+{}:{}-'.format(address, command))
 
 
@@ -152,11 +160,12 @@ def led2_route():
 @ser.on_message()
 def handle_incoming_message(msg):
     message = msg.decode("utf-8").split('-')
-    print(message)
     for s in message:
         if s[0] == '+':
             # Cut out '+'
             read_data(s[1:])
+        elif s != '':
+            print("Cant handle message: ", s)
 
 
 #@ser.on_log()

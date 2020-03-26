@@ -15,9 +15,8 @@ void setup() {
   mySwitch.enableTransmit(10);
   mySwitch.setPulseLength(256);
   pinMode(2, INPUT);
-  for(int i = 3; i < 8; i++) {
-    pinMode(i, OUTPUT);
-  }
+  pinMode(5, OUTPUT);
+  pinMode(6, OUTPUT);
   // initialize tracking array
   for (int i = 0; i < 22; i++) {
     track[i] = 0;
@@ -32,24 +31,23 @@ void sendData(int pin, int value) {
   }
 }
 
-int measureAnalog(int pin) {
+void measureAnalog(int pin) {
   long adcs = 0;
   for (int i=0; i<50; i++) {
       adcs = adcs + analogRead(pin);
       delay(10);
     }
   sendData(pin, (adcs / 50));
-  return (adcs / 50);
 }
 
-int measureDigital(int pin) {
+void measureDigital(int pin) {
   long adcs = 0;
   for (int i=0; i<25; i++) {
-      adcs = adcs + pulseIn(pin, HIGH, 40000);
+      adcs = adcs + pulseIn(pin, HIGH);
       delay(20);
     }
-  sendData(pin, (adcs / 25));
-  return (adcs / 25);
+  int value = (adcs / 25);
+  if (value != 0) sendData(pin, value);
 }
 
 void readNextValue(int item) {
