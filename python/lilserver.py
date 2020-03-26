@@ -157,6 +157,23 @@ def led2_route():
     return handle_led_command(6)
 
 
+# ToDo: State management
+@app.route('/heating')
+def heating_route():
+    channel = request.args.get('ch', type=str)
+    value = request.args.get('val', type=int)
+    if channel == 'power':
+        if value == 1:
+            serial_send(1)
+        elif value == 0:
+            serial_send(2)
+    elif channel == 'temp':
+        if value == 1:
+            serial_send(3)
+        elif value == 0:
+            serial_send(4)
+
+
 @ser.on_message()
 def handle_incoming_message(msg):
     message = msg.decode("utf-8").split('-')

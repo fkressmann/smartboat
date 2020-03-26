@@ -101,31 +101,31 @@ void serialCommandExecutor() {
   if (separatorPos != -1) {
     int device = commandBuffer.substring(0, separatorPos).toInt();
     int value = commandBuffer.substring(separatorPos + 1).toInt();
-    Serial.println("Rec:" + String(device) + "+" + String(value));
+    Serial.println("Rec:" + String(device) + ':' + String(value) + '-');
 
     switch (device) {
     // LED 1
-    case 1:
+    case 5:
       analogWrite(5, value);
       break;
     // LED2
-    case 2:
+    case 6:
       analogWrite(6, value);
       break;
     // Heizung einschalten
-    case 3:
+    case 1:
       mySwitch.send(547162328, 31);
       break;
     // Heizung ausschalten
-    case 4:
+    case 2:
       mySwitch.send(547160708, 31);
       break;
     // Heizung Temperatur erhöhen
-    case 5:
+    case 3:
       mySwitch.send(547161208, 31);
       break;
     // Heizung Temperatur senken
-    case 6:
+    case 4:
       mySwitch.send(547160388, 31);
       break;
     }
