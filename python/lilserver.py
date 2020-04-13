@@ -102,9 +102,10 @@ def just_return(value):
 # Calculation function
 def calc():
     new_values['Pverb'] = round(new_values['Iverb'] * new_values['U12v'], ROUND_TO_DECIMALS)
-    new_values['Pbat'] = round((new_values['Ibat'] + new_values['Iinverter']) * new_values['U12v'], ROUND_TO_DECIMALS)
-    new_values['Ppv'] = round((new_values['Ibat'] + new_values['Iverb']) * new_values['U12v'], ROUND_TO_DECIMALS)
     new_values['Pinverter'] = round(new_values['Iinverter'] * new_values['U12v'], ROUND_TO_DECIMALS)
+    new_values['Pbat'] = round((new_values['Ibat'] - new_values['Iinverter']) * new_values['U12v'], ROUND_TO_DECIMALS)
+    new_values['Ppv'] = round((new_values['Ibat'] + new_values['Iverb']) * new_values['U12v'], ROUND_TO_DECIMALS)
+
 
 
 def send_to_openhab(sensor, new_value):
