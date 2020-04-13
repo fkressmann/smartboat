@@ -29,33 +29,34 @@ except Exception as e:
 address_to_sensor_mapping = {}
 
 new_values = {'Iverb': 0,
-     'Ibat': 0,
-     'Iinverter': 0,
-     'U12v': 0,
-     'U5v': 0,
-     'Pverb': 0,
-     'Ppv': 0,
-     'Pbat': 0,
-     'Pinverter': 0,
-     'Atank': 0,
-     'Awasser1': 0,
+              'Ibat': 0,
+              'Iinverter': 0,
+              'U12v': 0,
+              'U5v': 0,
+              'Pverb': 0,
+              'Ppv': 0,
+              'Pbat': 0,
+              'Pinverter': 0,
+              'Atank': 0,
+              'Awasser1': 0,
               'Awasser2': 0,
               }
 old_values = {'U12v': 0,
-     'U5v': 0,
-     'Pverb': 0,
-     'Ppv': 0,
-     'Pbat': 0,
-     'Pinverter': 0,
-     'Atank': 0,
-     'Awasser1': 0,
-     'Awasser2': 0,
+              'U5v': 0,
+              'Pverb': 0,
+              'Ppv': 0,
+              'Pbat': 0,
+              'Pinverter': 0,
+              'Atank': 0,
+              'Awasser1': 0,
+              'Awasser2': 0,
               }
 
 
 def read_data(message):
     try:
         address, command = message.split(':')
+        if address == '17': print(message)
         # Get respective sensor and function from mapping dict
         sensor, function = address_to_sensor_mapping[int(address)]
         # Apply command to function and save result in list
@@ -66,26 +67,32 @@ def read_data(message):
         raise
 
 
-### Transformation functions
+# Transformation functions, offset used to calibrate
 def internal_voltage_5(value):
+    # Voltage divider with 6.25V Utotal @ 1.1V Uout. ADC Uref = 1.1V
     return round((6.25 / 1024) * value, ROUND_TO_DECIMALS)
 
 
 def internal_voltage_12(value):
+    # Voltage divider with 17.05V Utotal @ 1.1V Uout. ADC Uref = 1.1V
     return round((17.05 / 1024) * value, ROUND_TO_DECIMALS)
 
 
-def acs711(value, offset=0):
+def acs711(value, offset=2):
+    # ADC Uref = Vin (5V). Same as Vcc of acs711, so proportions apply
+    # 0A = Vin/2. 36.65A = Vin. 0.0716520039 = 73.3 / 1023 (no idea anymore why 1023 instead of 1024 but it works)
     return round(0.0716520039 * (value + offset) - 36.65, ROUND_TO_DECIMALS)
 
 
-def acs709(value, offset=0):
-    # ToDo: clarify calculation values
-    return round(0.0716520039 * (value + offset) - 36.65, ROUND_TO_DECIMALS)
+def shunt75mv(value, offset=0):
+    # 75mV at 100A Shunt, 20 times amplified by AD8217 so 1.5V. 1.1V Uout 73.3A. ADC Uref = 1.1V
+    # 0,071614583 = 73.3 / 1024
+    return round(0.071614583 * (value + offset), ROUND_TO_DECIMALS)
 
 
 def tank(value):
-    return round((value - 1100) / 4, 0)
+    # PWM pulse high time in µS. 1100µS = 0%, 1900µS = 100%. Time divided by 8 is percentage
+    return round((value - 1100) / 8, 0)
 
 
 def just_return(value):
@@ -131,14 +138,15 @@ def serial_send(address, command=0):
 
 def build_mapping_dict():
     global address_to_sensor_mapping
-    address_to_sensor_mapping = {14: ('U12v', internal_voltage_12),
-                                 15: ('U5v', internal_voltage_5),
-                                 17: ('Iverb', acs711),
-                                 18: ('Ibat', acs711),
-                                 19: ('Iinverter', acs711),
-                                 20: ('Awasser1', just_return),
-                                 21: ('Awasser2', just_return),
-                                 2: ('Atank', tank)
+    address_to_sensor_mapping = {14: ('U12v', internal_voltage_12),  # A0
+                                 15: ('U5v', internal_voltage_5),  # A1
+                                 16: ('Iinverter', shunt75mv),  # A2
+                                 17: ('Iverb', acs711),  # A3
+                                 18: ('Ibat', acs711),  # A4
+                                 # 19: ('Reserve Analog', just_return),  # A5
+                                 20: ('Awasser1', just_return),  # A6
+                                 21: ('Awasser2', just_return),  # A7
+                                 2: ('Atank', tank)  # D2
                                  }
 
 
@@ -185,7 +193,7 @@ def handle_incoming_message(msg):
             print("Cant handle message: ", s)
 
 
-#@ser.on_log()
+# @ser.on_log()
 def handle_logging(level, info):
     print(level, info)
     pass

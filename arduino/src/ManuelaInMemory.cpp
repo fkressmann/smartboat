@@ -73,7 +73,7 @@ void readNextValue(int item) {
     }
     break;
   case 5:
-    // measureAnalog(A2);
+    measureAnalog(A2);
     break;
   case 6:
     measureAnalog(A3);
