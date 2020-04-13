@@ -66,23 +66,23 @@ void readNextValue(int item) {
     measureAnalog(A1);
     break;
   case 4:
+    measureAnalog(A2);
+    break;
+  case 5:
     analogReference(DEFAULT);
     for (int i=0; i<10; i++) {
       delay(10);
       analogRead(A2);
     }
     break;
-  case 5:
-    measureAnalog(A2);
-    break;
-  case 6:
+  //case 6:
+    // measureAnalog(A5);
+    //break;
+  case 7:
     measureAnalog(A3);
     break;
-  case 7:
-    measureAnalog(A4);
-    break;
   case 8:
-    measureAnalog(A5);
+    measureAnalog(A4);
     break;
   case 9:
     measureAnalog(A6);

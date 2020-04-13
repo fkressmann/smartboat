@@ -56,7 +56,6 @@ old_values = {'U12v': 0,
 def read_data(message):
     try:
         address, command = message.split(':')
-        if address == '17': print(message)
         # Get respective sensor and function from mapping dict
         sensor, function = address_to_sensor_mapping[int(address)]
         # Apply command to function and save result in list
@@ -84,9 +83,10 @@ def acs711(value, offset=2):
     return round(0.0716520039 * (value + offset) - 36.65, ROUND_TO_DECIMALS)
 
 
-def shunt75mv(value, offset=0):
+def shunt75mv(value, offset=5.58):
     # 75mV at 100A Shunt, 20 times amplified by AD8217 so 1.5V. 1.1V Uout 73.3A. ADC Uref = 1.1V
     # 0,071614583 = 73.3 / 1024
+    offset = offset if value else 0  # Only apply offset if reading is not 0
     return round(0.071614583 * (value + offset), ROUND_TO_DECIMALS)
 
 
@@ -101,10 +101,10 @@ def just_return(value):
 
 # Calculation function
 def calc():
-    new_values['Pverb'] = round(new_values['Iverb'] * new_values['U12v'], 1)
-    new_values['Pbat'] = round((new_values['Ibat'] + new_values['Iinverter']) * new_values['U12v'], 1)
-    new_values['Ppv'] = round((new_values['Ibat'] + new_values['Iverb']) * new_values['U12v'], 1)
-    new_values['Pinverter'] = round(new_values['Iinverter'] * new_values['U12v'], 1)
+    new_values['Pverb'] = round(new_values['Iverb'] * new_values['U12v'], ROUND_TO_DECIMALS)
+    new_values['Pbat'] = round((new_values['Ibat'] + new_values['Iinverter']) * new_values['U12v'], ROUND_TO_DECIMALS)
+    new_values['Ppv'] = round((new_values['Ibat'] + new_values['Iverb']) * new_values['U12v'], ROUND_TO_DECIMALS)
+    new_values['Pinverter'] = round(new_values['Iinverter'] * new_values['U12v'], ROUND_TO_DECIMALS)
 
 
 def send_to_openhab(sensor, new_value):
