@@ -2,9 +2,15 @@
 #include <RCSwitch.h>
 
 int executionCounter = 1;
+
+int led5is = 0;
+int led5tobe = 0;
+int led6is = 0;
+int led6tobe = 0;
+
 int m[9];
 int track[22];
-String toPrint = "+";
+
 String commandBuffer = "";
 boolean commandBufferValid = false;
 RCSwitch mySwitch = RCSwitch();
@@ -22,6 +28,22 @@ void setup() {
     track[i] = 0;
   }
   Serial.println("Startup completed");
+}
+
+void checkFade() {
+  // Check LED5
+  if (led5is < led5tobe) {
+    analogWrite(5, ++led5is);
+  } else if (led5is > led5tobe) {
+    analogWrite(5, --led5is);
+  }
+
+  // Check LED6
+  if (led6is < led6tobe) {
+    analogWrite(6, ++led6is);
+  } else if (led6is > led6tobe) {
+    analogWrite(6, --led6is);
+  }
 }
 
 void sendData(int pin, int value) {
@@ -106,11 +128,11 @@ void serialCommandExecutor() {
     switch (device) {
     // LED 1
     case 5:
-      analogWrite(5, value);
+      led5tobe = value;
       break;
     // LED2
     case 6:
-      analogWrite(6, value);
+      led6tobe = value;
       break;
     // Heizung einschalten
     case 1:
@@ -146,7 +168,6 @@ void loop() {
 // ON SERIAL EVENT
 void serialEvent() {
   while (Serial.available()) {
-
     char inChar = (char)Serial.read();
 
     if (inChar == '+') {
