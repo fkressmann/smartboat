@@ -51,6 +51,10 @@ old_values = {'U12v': 0,
               'Awasser1': 0,
               'Awasser2': 0,
               }
+settings = {'analogMeasurements': 11,
+            'analogDelay': 12,
+            'digitalMesaurements': 13,
+            'digitalDelay': 14}
 
 
 def read_data(message):
@@ -154,6 +158,19 @@ def build_mapping_dict():
 @app.route('/')
 def use_serial():
     return 'No command specified. Use specific endpoint instead.'
+
+@app.route('/settings')
+def edit_settings():
+    setting = request.args.get('s', type=str)
+    value = request.args.get('v', type=int)
+    try:
+        serial_send(settings[setting], value)
+    except KeyError:
+        return f"Setting {setting} could not be found"
+    except Exception as ex:
+        return f"Unknown error: {type(ex)}, {ex}"
+    return f"Successfully set {setting} to {value}"
+
 
 
 @app.route('/led1')

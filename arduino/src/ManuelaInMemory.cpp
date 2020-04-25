@@ -1,6 +1,11 @@
 #include <Arduino.h>
 #include <RCSwitch.h>
 
+int analogMeasurements = 50;
+int analogDelay = 2;
+int digitalMesaurements = 0;
+int digitalDelay = 0;
+
 int executionCounter = 1;
 
 int led5is = 0;
@@ -55,20 +60,20 @@ void sendData(int pin, int value) {
 
 void measureAnalog(int pin) {
   long adcs = 0;
-  for (int i=0; i<50; i++) {
-      adcs = adcs + analogRead(pin);
-      delay(10);
+  for (int i=0; i < analogMeasurements; i++) {
+    adcs = adcs + analogRead(pin);
+    delay(analogDelay);
     }
-  sendData(pin, (adcs / 50));
+  sendData(pin, (adcs / analogMeasurements));
 }
 
 void measureDigital(int pin) {
-  long adcs = 0;
-  for (int i=0; i<25; i++) {
-      adcs = adcs + pulseIn(pin, HIGH);
-      delay(20);
+  long pulse = 0;
+  for (int i = 0; i < digitalMesaurements; i++) {
+    pulse = pulse + pulseIn(pin, HIGH, 4000);
+    delay(digitalDelay);
     }
-  int value = (adcs / 25);
+  int value = (pulse / digitalMesaurements);
   if (value != 0) sendData(pin, value);
 }
 
@@ -76,9 +81,7 @@ void readNextValue(int item) {
   switch (item) {
   case 1:
     analogReference(INTERNAL);
-    for (int i=0; i<10; i++) {
-      delay(10);
-      analogRead(A0);
+    for (int i = 0; i < analogMeasurements; i++) {
     }
     break;
   case 2:
@@ -92,8 +95,7 @@ void readNextValue(int item) {
     break;
   case 5:
     analogReference(DEFAULT);
-    for (int i=0; i<10; i++) {
-      delay(10);
+    for (int i = 0; i < analogMeasurements; i++) {
       analogRead(A2);
     }
     break;
@@ -150,6 +152,21 @@ void serialCommandExecutor() {
     case 4:
       mySwitch.send(547160388, 31);
       break;
+    case 11:
+      analogMeasurements = value;
+      break;
+    // Heizung ausschalten
+    case 12:
+      analogDelay = value;
+      break;
+    // Heizung Temperatur erhöhen
+    case 13:
+      digitalMesaurements = value;
+      break;
+    // Heizung Temperatur senken
+    case 14:
+      digitalDelay = value;
+      break;
     }
   }
 }
@@ -162,7 +179,7 @@ void loop() {
   if (executionCounter > 12) {
     executionCounter = 1;
   }
-  delay(100);
+  checkFade();
 }
 
 // ON SERIAL EVENT
