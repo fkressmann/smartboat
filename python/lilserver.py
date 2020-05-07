@@ -27,7 +27,6 @@ except Exception as e:
     print("Could not establish OH connection or read data: ", type(e), e)
 
 address_to_sensor_mapping = {}
-
 new_values = {'Iverb': 0,
               'Ibat': 0,
               'Iinverter': 0,
@@ -51,10 +50,15 @@ old_values = {'U12v': 0,
               'Awasser1': 0,
               'Awasser2': 0,
               }
-settings = {'analogMeasurements': 11,
+settings = {'tanksensor': 3,
+            'led-salon': 5,
+            'led-vorschiff': 6,
+            'analogMeasurements': 11,
             'analogDelay': 12,
-            'digitalMesaurements': 13,
-            'digitalDelay': 14}
+            'digitalMeasurements': 13,
+            'digitalDelay': 14,
+            'heizung-power': 21,
+            'heizung-temp': 22}
 
 
 def read_data(message):
@@ -65,8 +69,8 @@ def read_data(message):
         # Apply command to function and save result in list
         new_values[sensor] = function(float(command))
     except Exception as e:
-        print("Exception occured: ", type(e), e)
-        print('message was: ', message)
+        print(f"Error reading message: {type(e)}, {e}")
+        print(f"message was '{message}'")
         raise
 
 
@@ -96,6 +100,7 @@ def shunt75mv(value, offset=5.58):
 
 def tank(value):
     # PWM pulse high time in µS. 1100µS = 0%, 1900µS = 100%. Time divided by 8 is percentage
+    print(f"Tank ist {value}")
     return round((value - 1100) / 8, 0)
 
 
@@ -107,8 +112,9 @@ def just_return(value):
 def calc():
     new_values['Pverb'] = round(new_values['Iverb'] * new_values['U12v'], ROUND_TO_DECIMALS)
     new_values['Pinverter'] = round(new_values['Iinverter'] * new_values['U12v'], ROUND_TO_DECIMALS)
-    new_values['Pbat'] = round((new_values['Ibat'] - new_values['Iinverter']) * new_values['U12v'], ROUND_TO_DECIMALS)
-    new_values['Ppv'] = round((new_values['Ibat'] + new_values['Iverb']) * new_values['U12v'], ROUND_TO_DECIMALS)
+    # minus Ibat cause it's wired the wrong way :D
+    new_values['Pbat'] = round((-new_values['Ibat'] - new_values['Iinverter']) * new_values['U12v'], ROUND_TO_DECIMALS)
+    new_values['Ppv'] = round((-new_values['Ibat'] + new_values['Iverb']) * new_values['U12v'], ROUND_TO_DECIMALS)
 
 
 
@@ -129,16 +135,8 @@ def track():
             send_to_openhab(sensor, new_value)
 
 
-def handle_led_command(arduino_pin_no):
-    param = request.args.get('val', type=int)
-    param = int(round(param * 2.55, 0))
-    print('LED{} rec. param {}'.format(arduino_pin_no, param))
-    serial_send(arduino_pin_no, param)
-    return 'ok' + str(param)
-
-
-def serial_send(address, command=0):
-    ser.on_send('+{}:{}-'.format(address, command))
+def serial_send(address, command):
+    ser.on_send(f"+{address}:{command}-")
 
 
 def build_mapping_dict():
@@ -173,37 +171,37 @@ def edit_settings():
 
 
 
-@app.route('/led1')
+@app.route('/led-salon')
 def led1_route():
-    return handle_led_command(5)
+    serial_send(settings["led-salon"], request.args.get('val', type=int))
+    return "ok"
 
 
-@app.route('/led2')
+@app.route('/led-vorschiff')
 def led2_route():
-    return handle_led_command(6)
+    serial_send(settings["led-vorschiff"], request.args.get('val', type=int))
+    return "ok"
 
+@app.route('/tanksensor')
+def tanksensor_route():
+    value = request.args.get('val', type=int)
+    serial_send(settings['tanksensor'], value)
+    return 'ok'
 
 # ToDo: State management
 @app.route('/heating')
 def heating_route():
     channel = request.args.get('ch', type=str)
     value = request.args.get('val', type=int)
-    if channel == 'power':
-        if value == 1:
-            serial_send(1)
-        elif value == 0:
-            serial_send(2)
-    elif channel == 'temp':
-        if value == 1:
-            serial_send(3)
-        elif value == 0:
-            serial_send(4)
+    serial_send(settings[channel], value)
+    return 'ok'
 
 
 @ser.on_message()
 def handle_incoming_message(msg):
-    message = msg.decode("utf-8").split('-')
-    for s in message:
+    message = msg.decode("utf-8")
+    print(message)
+    for s in message.split('_'):
         if s[0] == '+':
             # Cut out '+'
             read_data(s[1:])

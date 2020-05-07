@@ -2,9 +2,11 @@
 #include <RCSwitch.h>
 
 int analogMeasurements = 50;
-int analogDelay = 2;
-int digitalMesaurements = 0;
-int digitalDelay = 0;
+int analogCounter = 0;
+long analogValue = 0;
+int digitalMesaurements = 25;
+int digitalCounter= 0;
+long digitalValue = 0;
 
 int executionCounter = 1;
 
@@ -12,8 +14,8 @@ int led5is = 0;
 int led5tobe = 0;
 int led6is = 0;
 int led6tobe = 0;
+bool tanksensor = false;
 
-int m[9];
 int track[22];
 
 String commandBuffer = "";
@@ -26,6 +28,7 @@ void setup() {
   mySwitch.enableTransmit(10);
   mySwitch.setPulseLength(256);
   pinMode(2, INPUT);
+  pinMode(3, OUTPUT);
   pinMode(5, OUTPUT);
   pinMode(6, OUTPUT);
   // initialize tracking array
@@ -51,30 +54,42 @@ void checkFade() {
   }
 }
 
-void sendData(int pin, int value) {
+void sendData(int pin, long value) {
   if (track[pin] != value) {
     track[pin] = value;
-    Serial.print('+' + String(pin) + ':' + String(value) + '-');
+    Serial.print('+' + String(pin) + ':' + String(value) + '_');
   }
 }
 
 void measureAnalog(int pin) {
-  long adcs = 0;
-  for (int i=0; i < analogMeasurements; i++) {
-    adcs = adcs + analogRead(pin);
-    delay(analogDelay);
-    }
-  sendData(pin, (adcs / analogMeasurements));
+  analogCounter++;
+  if (analogCounter <= analogMeasurements) {
+    analogValue = analogValue + analogRead(pin);
+    executionCounter--;
+  } else {
+    sendData(pin, (analogValue / analogMeasurements));
+    analogValue = 0;
+    analogCounter = 0;
+  }
 }
 
 void measureDigital(int pin) {
-  long pulse = 0;
-  for (int i = 0; i < digitalMesaurements; i++) {
-    pulse = pulse + pulseIn(pin, HIGH, 4000);
-    delay(digitalDelay);
+  if (tanksensor) {
+    long newPulse = 0;
+    digitalCounter++;
+    if (digitalCounter <= digitalMesaurements) {
+      newPulse = pulseIn(pin, HIGH);
+      if (newPulse != 0) {
+        digitalValue += newPulse;
+        executionCounter--;
+      }
+    } else {
+      int value = (digitalValue / digitalMesaurements);
+      sendData(pin, value);
+      digitalValue = 0;
+      digitalCounter = 0;
     }
-  int value = (pulse / digitalMesaurements);
-  if (value != 0) sendData(pin, value);
+  }
 }
 
 void readNextValue(int item) {
@@ -125,48 +140,52 @@ void serialCommandExecutor() {
   if (separatorPos != -1) {
     int device = commandBuffer.substring(0, separatorPos).toInt();
     int value = commandBuffer.substring(separatorPos + 1).toInt();
-    Serial.println("Rec:" + String(device) + ':' + String(value) + '-');
+    Serial.println("A-Rec:" + String(device) + ':' + String(value) + '-');
 
     switch (device) {
-    // LED 1
-    case 5:
-      led5tobe = value;
-      break;
-    // LED2
-    case 6:
-      led6tobe = value;
-      break;
-    // Heizung einschalten
-    case 1:
-      mySwitch.send(547162328, 31);
-      break;
-    // Heizung ausschalten
-    case 2:
-      mySwitch.send(547160708, 31);
-      break;
-    // Heizung Temperatur erhöhen
-    case 3:
-      mySwitch.send(547161208, 31);
-      break;
-    // Heizung Temperatur senken
-    case 4:
-      mySwitch.send(547160388, 31);
-      break;
-    case 11:
-      analogMeasurements = value;
-      break;
-    // Heizung ausschalten
-    case 12:
-      analogDelay = value;
-      break;
-    // Heizung Temperatur erhöhen
-    case 13:
-      digitalMesaurements = value;
-      break;
-    // Heizung Temperatur senken
-    case 14:
-      digitalDelay = value;
-      break;
+      // Tanksensor
+      case 3:
+        tanksensor = value;
+        digitalWrite(3, value);
+        break;
+      // LED 1
+      case 5:
+        led5tobe = value;
+        break;
+      // LED2
+      case 6:
+        led6tobe = value;
+        break;
+        
+      case 11:
+        analogMeasurements = value;
+        break;
+      case 12:
+        // analogDelay = value;
+        break;
+      case 13:
+        digitalMesaurements = value;
+        break;
+      case 14:
+        // digitalDelay = value;
+        break;
+
+      // Heizung Power
+      case 21:
+        if (value == 1) {
+          mySwitch.send(547162328, 31); // an
+        } else if (value == 0) {
+          mySwitch.send(547160708, 31); // aus
+        }
+        break;
+      // Heizung Temperatur
+      case 22:
+        if (value == 1) {
+          mySwitch.send(547161208, 31); // erhoehen
+        } else if (value == 0) {
+          mySwitch.send(547160388, 31); // senken
+        }
+        break;
     }
   }
 }
@@ -176,10 +195,14 @@ void serialCommandExecutor() {
 void loop() {
   readNextValue(executionCounter);
   executionCounter++;
-  if (executionCounter > 12) {
+  if (executionCounter > 11) {
     executionCounter = 1;
   }
-  checkFade();
+  unsigned long previousMillis = millis();
+  while (millis() < previousMillis + 10) {
+    checkFade();
+    delay(1);
+  }
 }
 
 // ON SERIAL EVENT
