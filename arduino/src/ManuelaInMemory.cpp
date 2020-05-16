@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <avr/wdt.h>
 #include <RCSwitch.h>
 
 int analogMeasurements = 50;
@@ -23,7 +24,7 @@ boolean commandBufferValid = false;
 RCSwitch mySwitch = RCSwitch();
 
 void setup() {
-  // initialize serial communication at 9600 bits per second:
+  wdt_enable(WDTO_8S);
   Serial.begin(9600);
   mySwitch.enableTransmit(10);
   mySwitch.setPulseLength(256);
@@ -193,6 +194,7 @@ void serialCommandExecutor() {
 
 // LOOP
 void loop() {
+  wdt_reset();
   readNextValue(executionCounter);
   executionCounter++;
   if (executionCounter > 11) {
