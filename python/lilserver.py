@@ -2,8 +2,34 @@ from flask import Flask, request
 from flask_serial import Serial
 from openhab import OpenHAB
 from flask_apscheduler import APScheduler
+import mysql.connector as mariadb
+import time
 
 ROUND_TO_DECIMALS = 1
+mariadb_password = open("mariadb_boot_pw.txt", "r").read()
+
+class DayAggregation:
+    def __init__(self, unit):
+        self.unit = unit
+        self.last_reading = 0
+        self.last_reading_time = time.time()
+        self.aggregated_value = 0
+
+    def add_reading(self, reading):
+        self.aggregated_value += (self.last_reading * self.get_time_delta())
+        self.last_reading = reading
+        self.last_reading_time = time.time()
+
+    def get_time_delta(self):
+        return (time.time() - self.last_reading_time) / 3600
+
+    def persist_and_reset(self):
+        # WIP
+        # mariadb_connection = mariadb.connect(user='boot', password=mariadb_password, database='boot')
+        # cursor = mariadb_connection.cursor()
+        # /WIP
+        self.last_reading = 0
+        self.aggregated_value = 0
 
 app = Flask(__name__)
 scheduler = APScheduler()
