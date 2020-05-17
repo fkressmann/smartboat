@@ -1,9 +1,10 @@
-from flask import Flask, request
+from flask import Flask, request, jsonify
 from flask_serial import Serial
 from openhab import OpenHAB
 from flask_apscheduler import APScheduler
 
 ROUND_TO_DECIMALS = 1
+base_url = 'http://localhost:8080/rest'
 
 app = Flask(__name__)
 scheduler = APScheduler()
@@ -19,7 +20,6 @@ app.config['SERIAL_STOPBITS'] = 1
 ser = Serial(app)
 serial_buffer = ""
 
-base_url = 'http://localhost:8080/rest'
 try:
     openhab = OpenHAB(base_url)
     items = openhab.fetch_all_items()
@@ -85,7 +85,7 @@ def internal_voltage_12(value):
     return round((17.05 / 1024) * value, ROUND_TO_DECIMALS)
 
 
-def acs711(value, offset=2):
+def acs711(value, offset=0):
     # ADC Uref = Vin (5V). Same as Vcc of acs711, so proportions apply
     # 0A = Vin/2. 36.65A = Vin. 0.0716520039 = 73.3 / 1023 (no idea anymore why 1023 instead of 1024 but it works)
     return round(0.0716520039 * (value + offset) - 36.65, ROUND_TO_DECIMALS)
@@ -115,7 +115,6 @@ def calc():
     # minus Ibat cause it's wired the wrong way :D
     new_values['Pbat'] = round((-new_values['Ibat'] - new_values['Iinverter']) * new_values['U12v'], ROUND_TO_DECIMALS)
     new_values['Ppv'] = round((-new_values['Ibat'] + new_values['Iverb']) * new_values['U12v'], ROUND_TO_DECIMALS)
-
 
 
 def send_to_openhab(sensor, new_value):
@@ -157,6 +156,7 @@ def build_mapping_dict():
 def use_serial():
     return 'No command specified. Use specific endpoint instead.'
 
+
 @app.route('/settings')
 def edit_settings():
     setting = request.args.get('s', type=str)
@@ -170,7 +170,6 @@ def edit_settings():
     return f"Successfully set {setting} to {value}"
 
 
-
 @app.route('/led-salon')
 def led1_route():
     serial_send(settings["led-salon"], request.args.get('val', type=int))
@@ -182,11 +181,13 @@ def led2_route():
     serial_send(settings["led-vorschiff"], request.args.get('val', type=int))
     return "ok"
 
+
 @app.route('/tanksensor')
 def tanksensor_route():
     value = request.args.get('val', type=int)
     serial_send(settings['tanksensor'], value)
     return 'ok'
+
 
 # ToDo: State management
 @app.route('/heating')
@@ -195,6 +196,13 @@ def heating_route():
     value = request.args.get('val', type=int)
     serial_send(settings[channel], value)
     return 'ok'
+
+
+@app.route('/debug')
+def debug_data():
+    return jsonify({'new_values': new_values,
+                    'old_values': old_values,
+                    'settings': settings}, )
 
 
 @ser.on_message()
@@ -218,4 +226,4 @@ def handle_logging(level, info):
 if __name__ == '__main__':
     build_mapping_dict()
     app.apscheduler.add_job('tracking', func=track, trigger='interval', seconds=10)
-    app.run(host='0.0.0.0')
+    app.run(debug=True, host='0.0.0.0')
