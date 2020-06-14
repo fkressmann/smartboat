@@ -2,9 +2,46 @@ from flask import Flask, request, jsonify
 from flask_serial import Serial
 from openhab import OpenHAB
 from flask_apscheduler import APScheduler
+import mysql.connector as mariadb
+import time
 
 ROUND_TO_DECIMALS = 1
-base_url = 'http://localhost:8080/rest'
+mariadb_password = open("mariadb_boot_pw.txt", "r").read().strip()
+
+
+class DayAggregation:
+    def __init__(self, metric):
+        self.metric = metric
+        self.last_reading = 0
+        self.last_reading_time = time.time()
+        self.aggregated_value = 0
+        self.previous_value = 0
+
+    def add_last_reading(self):
+        self.aggregated_value += (self.last_reading * self.get_time_delta())
+
+    def update(self):
+        self.add_last_reading()
+        self.last_reading = new_values[self.metric]
+        self.last_reading_time = time.time()
+
+    def get_time_delta(self):
+        return (time.time() - self.last_reading_time) / 3600
+
+    def send_if_changed(self):
+        if round(self.aggregated_value) != round(self.previous_value):
+            self.previous_value = self.aggregated_value
+            send_to_openhab(self.get_item_name(), self.aggregated_value)
+
+    def get_item_name(self):
+        return self.metric + "H"
+
+    def persist_and_reset(self, cursor):
+        self.add_last_reading()
+        cursor.execute(f"INSERT INTO {self.metric} (time,value) VALUES (NOW(),%s)", (self.aggregated_value,))
+        self.last_reading = 0
+        self.aggregated_value = 0
+
 
 app = Flask(__name__)
 scheduler = APScheduler()
@@ -20,6 +57,7 @@ app.config['SERIAL_STOPBITS'] = 1
 ser = Serial(app)
 serial_buffer = ""
 
+base_url = 'http://localhost:8080/rest'
 try:
     openhab = OpenHAB(base_url)
     items = openhab.fetch_all_items()
@@ -27,6 +65,7 @@ except Exception as e:
     print("Could not establish OH connection or read data: ", type(e), e)
 
 address_to_sensor_mapping = {}
+consumptions = []
 new_values = {'Iverb': 0,
               'Ibat': 0,
               'Iinverter': 0,
@@ -115,7 +154,8 @@ def calc():
     # minus Ibat cause it's wired the wrong way :D
     new_values['Pbat'] = round((-new_values['Ibat'] - new_values['Iinverter']) * new_values['U12v'], ROUND_TO_DECIMALS)
     new_values['Ppv'] = round((-new_values['Ibat'] + new_values['Iverb']) * new_values['U12v'], ROUND_TO_DECIMALS)
-
+    for metric in consumptions:
+        metric.update()
 
 def send_to_openhab(sensor, new_value):
     try:
@@ -133,13 +173,26 @@ def track():
             old_values[sensor] = new_values[sensor]
             send_to_openhab(sensor, new_value)
 
+    for metric in consumptions:
+        metric.send_if_changed()
+
+
+def reset_day_counters():
+    mariadb_connection = mariadb.connect(host='debian.fritz.box', user='boot', password=mariadb_password,
+                                         database='boot')
+    cursor = mariadb_connection.cursor()
+    [x.persist_and_reset(cursor) for x in consumptions]
+    mariadb_connection.commit()
+    mariadb_connection.close()
+
 
 def serial_send(address, command):
     ser.on_send(f"+{address}:{command}-")
 
 
-def build_mapping_dict():
+def initialize_objects():
     global address_to_sensor_mapping
+    global consumptions
     address_to_sensor_mapping = {14: ('U12v', internal_voltage_12),  # A0
                                  15: ('U5v', internal_voltage_5),  # A1
                                  16: ('Iinverter', shunt75mv),  # A2
@@ -150,6 +203,10 @@ def build_mapping_dict():
                                  21: ('Awasser2', just_return),  # A7
                                  2: ('Atank', tank)  # D2
                                  }
+    consumptions = [DayAggregation('Pverb'),
+                    DayAggregation('Pinverter'),
+                    DayAggregation('Pbat'),
+                    DayAggregation('Ppv')]
 
 
 @app.route('/')
@@ -224,6 +281,8 @@ def handle_logging(level, info):
 
 
 if __name__ == '__main__':
-    build_mapping_dict()
+    initialize_objects()
     app.apscheduler.add_job('tracking', func=track, trigger='interval', seconds=10)
+    app.apscheduler.add_job('day_counter', func=reset_day_counters, trigger='cron', hour='0')
+    print("Initialisation finished, running App")
     app.run(debug=True, host='0.0.0.0')
