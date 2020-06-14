@@ -21,9 +21,10 @@ class DayAggregation:
         self.aggregated_value += (self.last_reading * self.get_time_delta())
 
     def update(self):
-        self.add_last_reading()
-        self.last_reading = new_values[self.metric]
-        self.last_reading_time = time.time()
+        if check_system_state():
+            self.add_last_reading()
+            self.last_reading = new_values[self.metric]
+            self.last_reading_time = time.time()
 
     def get_time_delta(self):
         return (time.time() - self.last_reading_time) / 3600
@@ -38,7 +39,8 @@ class DayAggregation:
 
     def persist_and_reset(self, cursor):
         self.add_last_reading()
-        cursor.execute(f"INSERT INTO {self.metric} (time,value) VALUES (NOW(),%s)", (self.aggregated_value,))
+        # noinspection SqlResolve
+        cursor.execute(f"INSERT INTO {self.metric} (time, value) VALUES (NOW(),%s)", (self.aggregated_value,))
         self.last_reading = 0
         self.aggregated_value = 0
 
@@ -56,6 +58,8 @@ app.config['SERIAL_STOPBITS'] = 1
 
 ser = Serial(app)
 serial_buffer = ""
+time_of_last_reading = 0
+system_state = True
 
 base_url = 'http://localhost:8080/rest'
 try:
@@ -101,12 +105,14 @@ settings = {'tanksensor': 3,
 
 
 def read_data(message):
+    global time_of_last_reading
     try:
         address, command = message.split(':')
         # Get respective sensor and function from mapping dict
         sensor, function = address_to_sensor_mapping[int(address)]
         # Apply command to function and save result in list
         new_values[sensor] = function(float(command))
+        time_of_last_reading = time.time()
     except Exception as e:
         print(f"Error reading message: {type(e)}, {e}")
         print(f"message was '{message}'")
@@ -157,6 +163,7 @@ def calc():
     for metric in consumptions:
         metric.update()
 
+
 def send_to_openhab(sensor, new_value):
     try:
         items.get(sensor).update(new_value)
@@ -164,17 +171,38 @@ def send_to_openhab(sensor, new_value):
         print("Stuff happened: ", type(e), e)
 
 
-def track():
-    # print("### TRACKING ###")
-    calc()
-    for sensor, old_value in old_values.items():
-        new_value = new_values[sensor]
-        if new_value != old_value:
-            old_values[sensor] = new_values[sensor]
-            send_to_openhab(sensor, new_value)
+def print_time():
+    return time.strftime('%d.%m. %T', time.localtime(time.time()))
 
-    for metric in consumptions:
-        metric.send_if_changed()
+
+def check_system_state():
+    global system_state, time_of_last_reading
+    if time.time() < time_of_last_reading + 60:
+        if system_state is False:
+            print(f"{print_time()}: System operational")
+            send_to_openhab("SystemState", f"OPERATIONAL - seit {print_time()}")
+        system_state = True
+        return True
+    else:
+        if system_state is True:
+            print(f"{print_time()}: System failure")
+            send_to_openhab("SystemState", f"FAILURE - seit {print_time()}")
+        system_state = False
+        return False
+
+
+def track():
+    if check_system_state():
+        # print("### TRACKING ###")
+        calc()
+        for sensor, old_value in old_values.items():
+            new_value = new_values[sensor]
+            if new_value != old_value:
+                old_values[sensor] = new_values[sensor]
+                send_to_openhab(sensor, new_value)
+
+        for metric in consumptions:
+            metric.send_if_changed()
 
 
 def reset_day_counters():
@@ -284,5 +312,6 @@ if __name__ == '__main__':
     initialize_objects()
     app.apscheduler.add_job('tracking', func=track, trigger='interval', seconds=10)
     app.apscheduler.add_job('day_counter', func=reset_day_counters, trigger='cron', hour='0')
+    send_to_openhab("SystemState", f"OPERATIONAL - seit {print_time()}")
     print("Initialisation finished, running App")
     app.run(debug=True, host='0.0.0.0')
