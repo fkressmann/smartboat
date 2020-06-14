@@ -8,12 +8,14 @@ import time
 ROUND_TO_DECIMALS = 1
 mariadb_password = open("mariadb_boot_pw.txt", "r").read().strip()
 
+
 class DayAggregation:
     def __init__(self, metric):
         self.metric = metric
         self.last_reading = 0
         self.last_reading_time = time.time()
         self.aggregated_value = 0
+        self.previous_value = 0
 
     def add_last_reading(self):
         self.aggregated_value += (self.last_reading * self.get_time_delta())
@@ -26,11 +28,20 @@ class DayAggregation:
     def get_time_delta(self):
         return (time.time() - self.last_reading_time) / 3600
 
+    def send_if_changed(self):
+        if round(self.aggregated_value) != round(self.previous_value):
+            self.previous_value = self.aggregated_value
+            send_to_openhab(self.get_item_name(), self.aggregated_value)
+
+    def get_item_name(self):
+        return self.metric + "H"
+
     def persist_and_reset(self, cursor):
         self.add_last_reading()
         cursor.execute(f"INSERT INTO {self.metric} (time,value) VALUES (NOW(),%s)", (self.aggregated_value,))
         self.last_reading = 0
         self.aggregated_value = 0
+
 
 app = Flask(__name__)
 scheduler = APScheduler()
@@ -90,12 +101,14 @@ settings = {'tanksensor': 3,
 
 
 def read_data(message):
+    global time_of_last_reading
     try:
         address, command = message.split(':')
         # Get respective sensor and function from mapping dict
         sensor, function = address_to_sensor_mapping[int(address)]
         # Apply command to function and save result in list
         new_values[sensor] = function(float(command))
+        time_of_last_reading = time.time()
     except Exception as e:
         print(f"Error reading message: {type(e)}, {e}")
         print(f"message was '{message}'")
@@ -143,7 +156,8 @@ def calc():
     # minus Ibat cause it's wired the wrong way :D
     new_values['Pbat'] = round((-new_values['Ibat'] - new_values['Iinverter']) * new_values['U12v'], ROUND_TO_DECIMALS)
     new_values['Ppv'] = round((-new_values['Ibat'] + new_values['Iverb']) * new_values['U12v'], ROUND_TO_DECIMALS)
-    map(DayAggregation.update, consumptions)
+    for metric in consumptions:
+        metric.update()
 
 
 def send_to_openhab(sensor, new_value):
@@ -162,9 +176,13 @@ def track():
             old_values[sensor] = new_values[sensor]
             send_to_openhab(sensor, new_value)
 
+    for metric in consumptions:
+        metric.send_if_changed()
+
 
 def reset_day_counters():
-    mariadb_connection = mariadb.connect(host= 'debian.fritz.box', user='boot', password=mariadb_password, database='boot')
+    mariadb_connection = mariadb.connect(host='debian.fritz.box', user='boot', password=mariadb_password,
+                                         database='boot')
     cursor = mariadb_connection.cursor()
     [x.persist_and_reset(cursor) for x in consumptions]
     mariadb_connection.commit()
@@ -198,6 +216,7 @@ def initialize_objects():
 def use_serial():
     return 'No command specified. Use specific endpoint instead.'
 
+
 @app.route('/settings')
 def edit_settings():
     setting = request.args.get('s', type=str)
@@ -211,7 +230,6 @@ def edit_settings():
     return f"Successfully set {setting} to {value}"
 
 
-
 @app.route('/led-salon')
 def led1_route():
     serial_send(settings["led-salon"], request.args.get('val', type=int))
@@ -223,11 +241,13 @@ def led2_route():
     serial_send(settings["led-vorschiff"], request.args.get('val', type=int))
     return "ok"
 
+
 @app.route('/tanksensor')
 def tanksensor_route():
     value = request.args.get('val', type=int)
     serial_send(settings['tanksensor'], value)
     return 'ok'
+
 
 # ToDo: State management
 @app.route('/heating')
@@ -260,4 +280,5 @@ if __name__ == '__main__':
     initialize_objects()
     app.apscheduler.add_job('tracking', func=track, trigger='interval', seconds=10)
     app.apscheduler.add_job('day_counter', func=reset_day_counters, trigger='cron', hour='0')
+    print("Initialisation finished, running App")
     app.run(host='0.0.0.0')
