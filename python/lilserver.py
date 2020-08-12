@@ -4,6 +4,7 @@ from openhab import OpenHAB
 from flask_apscheduler import APScheduler
 import mysql.connector as mariadb
 import time
+from python_jbdtool_bms import BMS
 
 ROUND_TO_DECIMALS = 1
 mariadb_password = open("mariadb_boot_pw.txt", "r").read().strip()
@@ -61,6 +62,8 @@ serial_buffer = ""
 time_of_last_reading = 0
 system_state = True
 
+bms = BMS("/dev/ttyUSB0")
+
 base_url = 'http://localhost:8080/rest'
 try:
     openhab = OpenHAB(base_url)
@@ -82,6 +85,9 @@ new_values = {'Iverb': 0,
               'Atank': 0,
               'Awasser1': 0,
               'Awasser2': 0,
+              'ULiFe': 0,
+              'ILiFe': 0,
+              'RSOCLiFe': 0
               }
 old_values = {'U12v': 0,
               'U5v': 0,
@@ -92,6 +98,8 @@ old_values = {'U12v': 0,
               'Atank': 0,
               'Awasser1': 0,
               'Awasser2': 0,
+              'ULiFe': 0,
+              'RSOCLiFe': 0
               }
 settings = {'tanksensor': 3,
             'led-salon': 5,
@@ -158,7 +166,8 @@ def calc():
     new_values['Pverb'] = round(new_values['Iverb'] * new_values['U12v'], ROUND_TO_DECIMALS)
     new_values['Pinverter'] = round(new_values['Iinverter'] * new_values['U12v'], ROUND_TO_DECIMALS)
     # minus Ibat cause it's wired the wrong way :D
-    new_values['Pbat'] = round((-new_values['Ibat'] - new_values['Iinverter']) * new_values['U12v'], ROUND_TO_DECIMALS)
+    # old Pb battery: new_values['Pbat'] = round((-new_values['Ibat'] - new_values['Iinverter']) * new_values['U12v'], ROUND_TO_DECIMALS)
+    new_values['Pbat'] = round(new_values['ILiFe'] * new_values['ULiFe'], ROUND_TO_DECIMALS)
     new_values['Ppv'] = round((-new_values['Ibat'] + new_values['Iverb']) * new_values['U12v'], ROUND_TO_DECIMALS)
     for metric in consumptions:
         metric.update()
@@ -168,7 +177,7 @@ def send_to_openhab(sensor, new_value):
     try:
         items.get(sensor).update(new_value)
     except Exception as e:
-        print("Stuff happened: ", type(e), e)
+        print("Error sending to OpenHAB: ", type(e), e)
 
 
 def print_time():
@@ -191,16 +200,25 @@ def check_system_state():
         return False
 
 
-def track():
-    if check_system_state():
-        # print("### TRACKING ###")
-        calc()
-        for sensor, old_value in old_values.items():
-            new_value = new_values[sensor]
-            if new_value != old_value:
-                old_values[sensor] = new_values[sensor]
-                send_to_openhab(sensor, new_value)
+def read_from_bms():
+    bms.query_all()
+    new_values['ULiFe'] = bms.total_voltage
+    new_values['ILiFe'] = bms.current
+    new_values['RSOCLiFe'] = bms.rsoc
 
+
+def track():
+    # print("### TRACKING ###")
+    read_from_bms()
+    calc()
+    for sensor, old_value in old_values.items():
+        new_value = new_values[sensor]
+        if new_value != old_value:
+            old_values[sensor] = new_values[sensor]
+            send_to_openhab(sensor, new_value)
+            print(f"Sending {new_value} to item {sensor}")
+
+    if check_system_state():
         for metric in consumptions:
             metric.send_if_changed()
 
