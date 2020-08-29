@@ -24,7 +24,7 @@ boolean commandBufferValid = false;
 RCSwitch mySwitch = RCSwitch();
 
 void setup() {
-  wdt_enable(WDTO_8S);
+  wdt_enable(WDTO_4S);
   Serial.begin(9600);
   mySwitch.enableTransmit(10);
   mySwitch.setPulseLength(256);
@@ -36,7 +36,7 @@ void setup() {
   for (int i = 0; i < 22; i++) {
     track[i] = 0;
   }
-  Serial.println("Startup completed");
+  Serial.print("Startup completed");
 }
 
 void checkFade() {
@@ -58,7 +58,12 @@ void checkFade() {
 void sendData(int pin, long value) {
   if (track[pin] != value) {
     track[pin] = value;
-    Serial.print('+' + String(pin) + ':' + String(value) + '_');
+    String dataToSend = '+' + String(pin) + ':' + String(value) + '_';
+    if (dataToSend.startsWith("+") && dataToSend.endsWith("_")) {
+      Serial.print(dataToSend);
+    } else {
+      Serial.print("Crap data");
+    }
   }
 }
 
@@ -79,7 +84,7 @@ void measureDigital(int pin) {
     long newPulse = 0;
     digitalCounter++;
     if (digitalCounter <= digitalMesaurements) {
-      newPulse = pulseIn(pin, HIGH);
+      newPulse = pulseIn(pin, HIGH, 50000);
       if (newPulse != 0) {
         digitalValue += newPulse;
         executionCounter--;
@@ -141,7 +146,7 @@ void serialCommandExecutor() {
   if (separatorPos != -1) {
     int device = commandBuffer.substring(0, separatorPos).toInt();
     int value = commandBuffer.substring(separatorPos + 1).toInt();
-    Serial.println("A-Rec:" + String(device) + ':' + String(value) + '-');
+    Serial.print("A-Rec:" + String(device) + ':' + String(value) + '-');
 
     switch (device) {
       // Tanksensor
@@ -205,6 +210,7 @@ void loop() {
     checkFade();
     delay(1);
   }
+  // Serial.println("finished loop run: " + String(executionCounter));
 }
 
 // ON SERIAL EVENT
