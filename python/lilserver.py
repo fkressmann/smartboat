@@ -75,6 +75,7 @@ except Exception as e:
 
 address_to_sensor_mapping = {}
 consumptions = []
+pbat_avg_values = []
 new_values = {'Iverb': 0,
               'Ibat': 0,
               'Iinverter': 0,
@@ -89,7 +90,8 @@ new_values = {'Iverb': 0,
               'Awasser2': 0,
               'ULiFe': 0,
               'ILiFe': 0,
-              'RSOCLiFe': 0
+              'RSOCLiFe': 0,
+              'TimeLiFe': 0
               }
 old_values = {'U12v': 0,
               'U5v': 0,
@@ -101,7 +103,8 @@ old_values = {'U12v': 0,
               'Awasser1': 0,
               'Awasser2': 0,
               'ULiFe': 0,
-              'RSOCLiFe': 0
+              'RSOCLiFe': 0,
+              'TimeLiFe': 0
               }
 settings = {'tanksensor': 3,
             'led-salon': 5,
@@ -112,6 +115,22 @@ settings = {'tanksensor': 3,
             'digitalDelay': 14,
             'heizung-power': 21,
             'heizung-temp': 22}
+
+def add_pbat_reading_to_queue(reading):
+    pbat_avg_values.append(reading)
+    if len(pbat_avg_values) > 180:
+        pbat_avg_values.pop(0)
+
+
+def calculate_pbat_avgs():
+    return f"5min: {get_remaining_string(sum(pbat_avg_values[-30:])/30)}, " \
+           f"15min: {get_remaining_string(sum(pbat_avg_values[-90:])/90)}, " \
+           f"30min: {get_remaining_string(sum(pbat_avg_values)/180)}"
+
+
+def get_remaining_string(avg_current):
+    remaining = 0 if avg_current == 0 else (bms.residual_capacity if avg_current < 0 else 110 - bms.residual_capacity) / avg_current
+    return f"{int((remaining // 1))}:{round(remaining % 1 * 60)}h"
 
 
 def read_data(message):
@@ -206,8 +225,9 @@ def read_from_bms():
     bms.query_all()
     new_values['ULiFe'] = bms.total_voltage
     new_values['ILiFe'] = bms.current
+    add_pbat_reading_to_queue(bms.current)
     new_values['RSOCLiFe'] = bms.rsoc
-
+    new_values['TimeLiFe'] = calculate_pbat_avgs()
 
 def track():
     # print("### TRACKING ###")
@@ -334,4 +354,4 @@ if __name__ == '__main__':
     app.apscheduler.add_job('day_counter', func=reset_day_counters, trigger='cron', hour='0')
     send_to_openhab("SystemState", f"OPERATIONAL - seit {print_time()}")
     print("Initialisation finished, running App")
-    app.run(debug=True, host='0.0.0.0')
+    app.run(host='0.0.0.0')
