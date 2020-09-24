@@ -4,6 +4,7 @@ from openhab import OpenHAB
 from flask_apscheduler import APScheduler
 import mysql.connector as mariadb
 import time
+from python_jbdtool_bms import BMS
 
 ROUND_TO_DECIMALS = 1
 mariadb_password = open("mariadb_boot_pw.txt", "r").read().strip()
@@ -30,9 +31,11 @@ class DayAggregation:
         return (time.time() - self.last_reading_time) / 3600
 
     def send_if_changed(self):
-        if round(self.aggregated_value) != round(self.previous_value):
-            self.previous_value = self.aggregated_value
-            send_to_openhab(self.get_item_name(), self.aggregated_value)
+        rounded_aggregated = round(self.aggregated_value)
+        if rounded_aggregated != self.previous_value:
+            self.previous_value = rounded_aggregated
+            print(f"Sending aggregated value {rounded_aggregated} to item {self.get_item_name()}")
+            send_to_openhab(self.get_item_name(), rounded_aggregated)
 
     def get_item_name(self):
         return self.metric + "H"
@@ -61,6 +64,8 @@ serial_buffer = ""
 time_of_last_reading = 0
 system_state = True
 
+bms = BMS("/dev/ttyUSB0")
+
 base_url = 'http://localhost:8080/rest'
 try:
     openhab = OpenHAB(base_url)
@@ -70,6 +75,7 @@ except Exception as e:
 
 address_to_sensor_mapping = {}
 consumptions = []
+pbat_avg_values = []
 new_values = {'Iverb': 0,
               'Ibat': 0,
               'Iinverter': 0,
@@ -82,6 +88,10 @@ new_values = {'Iverb': 0,
               'Atank': 0,
               'Awasser1': 0,
               'Awasser2': 0,
+              'ULiFe': 0,
+              'ILiFe': 0,
+              'RSOCLiFe': 0,
+              'TimeLiFe': 0
               }
 old_values = {'U12v': 0,
               'U5v': 0,
@@ -92,6 +102,9 @@ old_values = {'U12v': 0,
               'Atank': 0,
               'Awasser1': 0,
               'Awasser2': 0,
+              'ULiFe': 0,
+              'RSOCLiFe': 0,
+              'TimeLiFe': 0
               }
 settings = {'tanksensor': 3,
             'led-salon': 5,
@@ -102,6 +115,22 @@ settings = {'tanksensor': 3,
             'digitalDelay': 14,
             'heizung-power': 21,
             'heizung-temp': 22}
+
+def add_pbat_reading_to_queue(reading):
+    pbat_avg_values.append(reading)
+    if len(pbat_avg_values) > 180:
+        pbat_avg_values.pop(0)
+
+
+def calculate_pbat_avgs():
+    return f"5min: {get_remaining_string(sum(pbat_avg_values[-30:])/30)}, " \
+           f"15min: {get_remaining_string(sum(pbat_avg_values[-90:])/90)}, " \
+           f"30min: {get_remaining_string(sum(pbat_avg_values)/180)}"
+
+
+def get_remaining_string(avg_current):
+    remaining = 0 if avg_current == 0 else (bms.residual_capacity if avg_current < 0 else 110 - bms.residual_capacity) / avg_current
+    return f"{int((remaining // 1))}:{round(remaining % 1 * 60)}h"
 
 
 def read_data(message):
@@ -158,7 +187,8 @@ def calc():
     new_values['Pverb'] = round(new_values['Iverb'] * new_values['U12v'], ROUND_TO_DECIMALS)
     new_values['Pinverter'] = round(new_values['Iinverter'] * new_values['U12v'], ROUND_TO_DECIMALS)
     # minus Ibat cause it's wired the wrong way :D
-    new_values['Pbat'] = round((-new_values['Ibat'] - new_values['Iinverter']) * new_values['U12v'], ROUND_TO_DECIMALS)
+    # old Pb battery: new_values['Pbat'] = round((-new_values['Ibat'] - new_values['Iinverter']) * new_values['U12v'], ROUND_TO_DECIMALS)
+    new_values['Pbat'] = round(new_values['ILiFe'] * new_values['ULiFe'], ROUND_TO_DECIMALS)
     new_values['Ppv'] = round((-new_values['Ibat'] + new_values['Iverb']) * new_values['U12v'], ROUND_TO_DECIMALS)
     for metric in consumptions:
         metric.update()
@@ -168,7 +198,7 @@ def send_to_openhab(sensor, new_value):
     try:
         items.get(sensor).update(new_value)
     except Exception as e:
-        print("Stuff happened: ", type(e), e)
+        print("Error sending to OpenHAB: ", type(e), e)
 
 
 def print_time():
@@ -191,16 +221,26 @@ def check_system_state():
         return False
 
 
-def track():
-    if check_system_state():
-        # print("### TRACKING ###")
-        calc()
-        for sensor, old_value in old_values.items():
-            new_value = new_values[sensor]
-            if new_value != old_value:
-                old_values[sensor] = new_values[sensor]
-                send_to_openhab(sensor, new_value)
+def read_from_bms():
+    bms.query_all()
+    new_values['ULiFe'] = bms.total_voltage
+    new_values['ILiFe'] = bms.current
+    add_pbat_reading_to_queue(bms.current)
+    new_values['RSOCLiFe'] = bms.rsoc
+    new_values['TimeLiFe'] = calculate_pbat_avgs()
 
+def track():
+    # print("### TRACKING ###")
+    read_from_bms()
+    calc()
+    for sensor, old_value in old_values.items():
+        new_value = new_values[sensor]
+        if new_value != old_value:
+            old_values[sensor] = new_values[sensor]
+            send_to_openhab(sensor, new_value)
+            print(f"Sending {new_value} to item {sensor}")
+
+    if check_system_state():
         for metric in consumptions:
             metric.send_if_changed()
 
@@ -314,4 +354,4 @@ if __name__ == '__main__':
     app.apscheduler.add_job('day_counter', func=reset_day_counters, trigger='cron', hour='0')
     send_to_openhab("SystemState", f"OPERATIONAL - seit {print_time()}")
     print("Initialisation finished, running App")
-    app.run(debug=True, host='0.0.0.0')
+    app.run(host='0.0.0.0')
